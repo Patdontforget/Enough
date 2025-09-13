@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <title>ระบบบัญชีรายรับ-รายจ่าย</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-6">
+  <div class="max-w-5xl mx-auto">
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold text-indigo-700">📒 บัญชีรายรับ-รายจ่าย</h1>
+      <div class="flex gap-2">
+        <input id="search" placeholder="🔍 ค้นหา..." 
+          class="px-3 py-2 rounded-lg border border-gray-300 focus:ring focus:ring-indigo-200" />
+        <button onclick="loadEntries()" 
+          class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">ค้นหา</button>
+      </div>
+    </header>
+
+    <!-- Form -->
+    <div class="bg-white p-6 rounded-2xl shadow-md mb-6">
+      <form id="entryForm" onsubmit="return submitForm(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <input type="hidden" id="entryId" />
+        <input id="title" placeholder="ชื่อรายการ" required class="border p-2 rounded-lg" />
+        <input id="amount" type="number" step="0.01" placeholder="จำนวนเงิน" required class="border p-2 rounded-lg" />
+        <input id="date" type="date" class="border p-2 rounded-lg" />
+        <select id="kind" class="border p-2 rounded-lg">
+          <option value="income">รายรับ</option>
+          <option value="expense">รายจ่าย</option>
+        </select>
+        <input id="category" placeholder="หมวดหมู่" class="border p-2 rounded-lg" />
+        <input id="note" placeholder="หมายเหตุ (ไม่บังคับ)" class="border p-2 rounded-lg" />
+        <div class="flex gap-2 col-span-full">
+          <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">💾 บันทึก</button>
+          <button type="button" onclick="clearForm()" class="bg-gray-300 px-4 py-2 rounded-lg hover:bg-gray-400">ล้าง</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"></div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-2xl shadow-md overflow-hidden">
+      <table class="w-full text-sm text-left">
+        <thead class="bg-indigo-600 text-white">
+          <tr>
+            <th class="px-4 py-3">วันที่</th>
+            <th class="px-4 py-3">ชื่อ</th>
+            <th class="px-4 py-3">หมวด</th>
+            <th class="px-4 py-3">ประเภท</th>
+            <th class="px-4 py-3">จำนวน</th>
+            <th class="px-4 py-3">หมายเหตุ</th>
+            <th class="px-4 py-3">จัดการ</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody" class="divide-y divide-gray-200"></tbody>
+      </table>
+    </div>
+
+    <!-- เครดิตผู้จัดทำ -->
+    <footer class="text-center mt-6 text-gray-500">
+      <p>✨ จัดทำโดย: <b>ปวีภัทร และ แพรวา</b> ✨</p>
+    </footer>
+  </div>
+
+<script>
+const api = "/api";
+
+async function loadEntries(){
+  const q = document.getElementById("search").value.trim();
+  let url = api + "/entries";
+  if(q) url += "?q=" + encodeURIComponent(q);
+  const res = await fetch(url);
+  const data = await res.json();
+  renderTable(data);
+  loadStats();
+}
+
+function renderTable(entries){
+  const tbody = document.getElementById("tableBody");
+  tbody.innerHTML = "";
+  for(const e of entries){
+    const tr = document.createElement("tr");
+    tr.className = "hover:bg-gray-50";
+    tr.innerHTML = `
+      <td class="px-4 py-2">${e.date||""}</td>
+      <td class="px-4 py-2">${escapeHtml(e.title)}</td>
+      <td class="px-4 py-2">${escapeHtml(e.category)}</td>
+      <td class="px-4 py-2 ${e.kind === 'income' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}">${e.kind}</td>
+      <td class="px-4 py-2">${Number(e.amount).toLocaleString()}</td>
+      <td class="px-4 py-2">${escapeHtml(e.note)}</td>
+      <td class="px-4 py-2 space-x-2">
+        <button onclick='editEntry("${e.id}")' class="bg-yellow-400 text-black px-2 py-1 rounded-lg hover:bg-yellow-500">✏️</button>
+        <button onclick='deleteEntry("${e.id}")' class="bg-red-600 text-white px-2 py-1 rounded-lg hover:bg-red-700">🗑️</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function escapeHtml(s){ return (s||"").toString().replace(/[&<>"']/g, 
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c])); }
+
+async function submitForm(ev){
+  ev.preventDefault();
+  const id = document.getElementById("entryId").value;
+  const payload = {
+    title: document.getElementById("title").value,
+    amount: parseFloat(document.getElementById("amount").value),
+    date: document.getElementById("date").value || undefined,
+    kind: document.getElementById("kind").value,
+    category: document.getElementById("category").value,
+    note: document.getElementById("note").value
+  };
+  if(id){
+    await fetch(api + "/entries/" + id, { method: "PUT", headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  } else {
+    await fetch(api + "/entries", { method: "POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  }
+  clearForm();
+  loadEntries();
+  return false;
+}
+
+function clearForm(){
+  document.getElementById("entryId").value = "";
+  document.getElementById("title").value = "";
+  document.getElementById("amount").value = "";
+  document.getElementById("date").value = "";
+  document.getElementById("kind").value = "expense";
+  document.getElementById("category").value = "";
+  document.getElementById("note").value = "";
+}
+
+async function editEntry(id){
+  const res = await fetch(api + "/entries/" + id);
+  const e = await res.json();
+  document.getElementById("entryId").value = e.id;
+  document.getElementById("title").value = e.title;
+  document.getElementById("amount").value = e.amount;
+  document.getElementById("date").value = e.date || "";
+  document.getElementById("kind").value = e.kind;
+  document.getElementById("category").value = e.category;
+  document.getElementById("note").value = e.note;
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+async function deleteEntry(id){
+  if(!confirm("❌ ต้องการลบจริงหรือไม่?")) return;
+  await fetch(api + "/entries/" + id, { method: "DELETE" });
+  loadEntries();
+}
+
+async function loadStats(){
+  const res = await fetch(api + "/stats");
+  const s = await res.json();
+  document.getElementById("stats").innerHTML = `
+    <div class="bg-green-100 p-4 rounded-lg shadow text-center">
+      <div class="text-green-700 font-bold">รวมรายรับ</div>
+      <div class="text-2xl font-semibold text-green-600">${Number(s.income).toLocaleString()} ฿</div>
+    </div>
+    <div class="bg-red-100 p-4 rounded-lg shadow text-center">
+      <div class="text-red-700 font-bold">รวมรายจ่าย</div>
+      <div class="text-2xl font-semibold text-red-600">${Number(s.expense).toLocaleString()} ฿</div>
+    </div>
+    <div class="bg-indigo-100 p-4 rounded-lg shadow text-center">
+      <div class="text-indigo-700 font-bold">ยอดคงเหลือ</div>
+      <div class="text-2xl font-semibold text-indigo-600">${Number(s.balance).toLocaleString()} ฿</div>
+    </div>
+  `;
+}
+
+loadEntries();
+</script>
+</body>
+</html>
